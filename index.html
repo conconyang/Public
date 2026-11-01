@@ -46,6 +46,22 @@ h2{font-size:15px;margin:0 0 10px;color:var(--mu);font-weight:600}
 .rec span.t{color:var(--mu);font-size:13px;font-variant-numeric:tabular-nums}
 .del{border:0;background:none;color:var(--mu);font-size:18px;padding:6px 10px;cursor:pointer;border-radius:8px}
 .empty{color:var(--mu);font-size:14px;padding:4px 0}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.tabs button,.nav button{border:1px solid var(--bd);background:var(--soft);color:var(--tx);border-radius:10px;padding:8px;font:inherit;cursor:pointer}
+.tabs button{flex:1}
+.tabs button.on{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.tabs button:focus-visible,.nav button:focus-visible{outline:3px solid var(--study);outline-offset:2px}
+.nav{display:flex;justify-content:space-between;align-items:center;margin:4px 0 8px}
+.nav button{padding:6px 16px}
+.nav button:disabled{opacity:.35;cursor:default}
+.sub{margin:14px 0 6px}
+.ab .row{padding:2px 0}
+.chart{display:flex;align-items:flex-end;gap:3px;height:130px;margin-top:6px}
+.col{flex:1;display:flex;flex-direction:column;height:100%;font-size:11px;color:var(--mu);text-align:center}
+.plot{flex:1;display:flex;align-items:flex-end;min-height:0}
+.col span{height:16px;line-height:16px;white-space:nowrap}
+.stk{width:100%;display:flex;flex-direction:column;border-radius:4px 4px 0 0;overflow:hidden;min-height:2px}
+.stk.zero{height:2px;background:var(--bd)}
 </style>
 </head>
 <body>
@@ -69,6 +85,13 @@ h2{font-size:15px;margin:0 0 10px;color:var(--mu);font-weight:600}
     <div class="bar"><i id="funbar"></i></div>
     <div class="msg" id="funmsg"></div>
     <div class="lim"><label for="lim">今日娛樂上限</label><input id="lim" type="number" min="0" max="600" step="5" inputmode="numeric"> 分鐘</div>
+  </section>
+
+  <section class="card" id="stats">
+    <h2>統計表</h2>
+    <div class="tabs" id="tabs"><button data-rg="d">日</button><button data-rg="w">週</button><button data-rg="m">月</button></div>
+    <div class="nav"><button data-nav="-1" aria-label="上一段">◀</button><span id="rglabel"></span><button data-nav="1" id="nxt" aria-label="下一段">▶</button></div>
+    <div id="statbody"></div>
   </section>
 
   <section class="card">
@@ -142,14 +165,62 @@ function tick(){
   $("funmsg").textContent=lim===0?"已設定為不玩娛樂":(over?"已超過今日娛樂上限，該去做別的事了":"還剩 "+mins(lim-fun)+" 的娛樂時間");
   $("funmsg").className="msg"+(over?" over":"");
 }
-function draw(){drawActs();drawList();tick();}
+let RG="d",OFF=0;
+function span(){
+  const n=new Date();n.setHours(0,0,0,0);let a,b;
+  if(RG==="d"){a=new Date(n);a.setDate(a.getDate()+OFF);b=new Date(a);b.setDate(b.getDate()+1);}
+  else if(RG==="w"){const wd=(n.getDay()+6)%7;a=new Date(n);a.setDate(a.getDate()-wd+OFF*7);b=new Date(a);b.setDate(b.getDate()+7);}
+  else{a=new Date(n.getFullYear(),n.getMonth()+OFF,1);b=new Date(a.getFullYear(),a.getMonth()+1,1);}
+  return [a,b];
+}
+function ov(r,a,b){const s=Math.max(r.start,a),e=Math.min(r.end,b);return e>s?e-s:0;}
+function drawStats(){
+  const sp=span(),a=sp[0],b=sp[1],A=a.getTime(),B=b.getTime();
+  const all=S.recs.concat(S.run?[{act:S.run.act,start:S.run.start,end:Date.now()}]:[]);
+  const per={},ty={study:0,fun:0,other:0};
+  ACTS.forEach(x=>per[x.id]=0);
+  all.forEach(r=>{const d=ov(r,A,B);if(d){per[r.act]=(per[r.act]||0)+d;ty[byId(r.act).type]+=d;}});
+  const days=Math.round((B-A)/864e5),el=Math.max(1,Math.min(days,Math.floor((Date.now()-A)/864e5)+1));
+  const f=d=>(d.getMonth()+1)+"/"+d.getDate();
+  const last=new Date(B-1);
+  $("rglabel").textContent=RG==="d"?(OFF===0?"今天 ":"")+f(a):RG==="w"?(OFF===0?"本週 ":"")+f(a)+" – "+f(last):a.getFullYear()+" 年 "+(a.getMonth()+1)+" 月";
+  $("nxt").disabled=OFF>=0;
+  document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x.dataset.rg===RG));
+  const mk=(t,n)=>'<div class="row"><span><span class="dot" style="background:var(--'+t+')"></span>'+n+'</span><span class="big">'+mins(ty[t])+'</span></div>';
+  let h=mk("study","學習")+mk("fun","娛樂")+mk("other","其他");
+  if(RG!=="d")h+='<div class="msg">平均每天：學習 '+mins(ty.study/el)+"，娛樂 "+mins(ty.fun/el)+"</div>";
+  const mx=Math.max(1,...ACTS.map(x=>per[x.id]));
+  h+='<h2 class="sub">各項活動</h2>'+ACTS.map(x=>'<div class="ab"><div class="row"><span>'+x.e+" "+x.name+'</span><span>'+mins(per[x.id])+'</span></div><div class="bar"><i style="width:'+(per[x.id]/mx*100)+'%;background:var(--'+x.type+')"></i></div></div>').join("");
+  if(RG!=="d"){
+    const cols=[];let mxd=1;
+    for(let i=0;i<days;i++){
+      const d0=new Date(a.getFullYear(),a.getMonth(),a.getDate()+i).getTime(),d1=new Date(a.getFullYear(),a.getMonth(),a.getDate()+i+1).getTime();
+      const t={study:0,fun:0,other:0};
+      all.forEach(r=>{const o=ov(r,d0,d1);if(o)t[byId(r.act).type]+=o;});
+      const sum=t.study+t.fun+t.other;mxd=Math.max(mxd,sum);cols.push({t:t,sum:sum,i:i});
+    }
+    const names=["一","二","三","四","五","六","日"];
+    h+='<h2 class="sub">每日分布</h2><div class="chart">'+cols.map(c=>{
+      const lab=RG==="w"?names[c.i]:(c.i%5===0?c.i+1:"");
+      const seg=c.sum?'<div class="stk" style="height:'+(c.sum/mxd*100)+'%"><i style="flex:'+c.t.fun+';background:var(--fun)"></i><i style="flex:'+c.t.study+';background:var(--study)"></i><i style="flex:'+c.t.other+';background:var(--other)"></i></div>':'<div class="stk zero"></div>';
+      return '<div class="col"><div class="plot">'+seg+'</div><span>'+lab+'</span></div>';
+    }).join("")+'</div><div class="msg">顏色與上方的學習、娛樂、其他相同</div>';
+  }
+  $("statbody").innerHTML=h;
+}
+function draw(){drawActs();drawList();tick();drawStats();}
 
 $("acts").addEventListener("click",e=>{const b=e.target.closest("[data-id]");if(b)toggle(b.dataset.id);});
 $("list").addEventListener("click",e=>{const b=e.target.closest("[data-del]");if(b)del(+b.dataset.del);});
 $("lim").value=S.limit;
 $("lim").addEventListener("input",e=>{const v=parseInt(e.target.value,10);S.limit=isNaN(v)?0:Math.max(0,v);save();tick();});
 draw();
+$("stats").addEventListener("click",e=>{
+  const t=e.target.closest("[data-rg]");if(t){RG=t.dataset.rg;OFF=0;drawStats();return;}
+  const n=e.target.closest("[data-nav]");if(n){OFF=Math.min(0,OFF+Number(n.dataset.nav));drawStats();}
+});
 setInterval(tick,1000);
+setInterval(drawStats,10000);
 </script>
 </body>
 </html>
